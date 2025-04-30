@@ -1,0 +1,272 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+
+Description: Contains autoscaling structure for deploying wordpress
+
+# ******************* Parameters *********************
+Parameters:
+  Environment:
+    Description: Different environments types
+    Type: String
+
+  TargetGroupName:
+    Description: Name of target group
+    Type: String
+
+  LoadBalancerName:
+    Description: Name of load balancer
+    Type: String
+
+  LaunchTemplateName:
+    Description: Name of launch template
+    Type: String
+
+  LaunchTemplateVersion:
+    Description: Version of the launch template
+    Type: String
+
+  KeyName:
+    Description: Name of key for ssh
+    Type: String
+
+  AutoscalingGroupName:
+    Description: Name of autoscaling group
+    Type: String
+
+  AvailabilityZones:
+    Description: Availability zone to deploy resources
+    Type: String
+
+  AsgCooldown:
+    Description: Time(seconds) required to perform next activity
+    Type: String
+
+  AsgDesiredCapacityType:
+    Description: Capacity type to measure instances
+    Type: String
+
+  AsgDesiredCapacity:
+    Description: Numbers of desired instances running at initialization
+    Type: String
+
+  AsgMinSize:
+    Description: Min numbers of instances running
+    Type: String
+
+  AsgMaxSize:
+    Description: Max numbers of instances running
+    Type: String
+
+  # ************ Other Parameters ************
+
+  VpcId:
+    Description: VPC Id
+    Type: String
+
+  SecurityGroupId:
+    Description: Security group id
+    Type: String
+
+  PublicSubnetIds:
+    Description: List of public subnet ids
+    Type: String
+
+  PrivateSubnetIds:
+    Description: List of private subnet ids
+    Type: String
+
+  RdsDbName:
+    Description: Name of RDS database
+    Type: String
+
+  RdsMasterUsername:
+    Description: Username for RDS database
+    Type: String
+
+  RdsMasterPassword:
+    Description: Password required for RDS database
+    Type: String
+
+  RdsEndpointAddress:
+    Description: Endpoint address of RDS database
+    Type: String
+
+# ******************* Mappings *********************
+Mappings:
+  EnvironmentConfig:
+    dev:
+      InstanceType: t2.micro
+      ami: ami-0d61ea20f09848335
+    testing:
+      InstanceType: t2.micro
+      ami: ami-0d61ea20f09848335
+    prod:
+      InstanceType: t2.micro
+      ami: ami-0d61ea20f09848335
+
+# ******************* Resources *********************
+Resources:
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${Environment}-${TargetGroupName}-${AWS::Region}"
+      TargetType: instance
+      Protocol: HTTP
+      Port: 80
+      HealthCheckPath: /wp-admin/install.php
+      VpcId: !Ref VpcId
+      Tags:
+      - Key: Name
+        Value: !Sub "${Environment}-${TargetGroupName}-${AWS::Region}"
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Name: !Sub "${Environment}-${LoadBalancerName}-${AWS::Region}"
+      Scheme: internet-facing
+      IpAddressType: ipv4
+      SecurityGroups:
+      - !Ref SecurityGroupId
+      Subnets:
+      - !Select [ 0, !Split [ ",", !Ref PublicSubnetIds ] ]
+      - !Select [ 1, !Split [ ",", !Ref PublicSubnetIds ] ]
+      - !Select [ 2, !Split [ ",", !Ref PublicSubnetIds ] ]
+      - !Select [ 3, !Split [ ",", !Ref PublicSubnetIds ] ]
+      Tags:
+      - Key: Name
+        Value: !Sub "${Environment}-${LoadBalancerName}-${AWS::Region}"
+
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+      - Type: forward
+        TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${Environment}-${LaunchTemplateName}-${AWS::Region}"
+      VersionDescription: !Ref LaunchTemplateVersion
+      LaunchTemplateData:
+        InstanceType: !FindInMap [ EnvironmentConfig, !Ref Environment, InstanceType ]
+        ImageId: !FindInMap [ EnvironmentConfig, !Ref Environment, ami ]
+        KeyName: !Ref KeyName
+        SecurityGroupIds:
+        - !Ref SecurityGroupId
+        UserData:
+          Fn::Base64: !Sub
+            - |
+              #!/bin/bash
+              sudo yum update -y
+              sudo amazon-linux-extras install php7.4 -y
+              sudo yum install httpd -y
+              sudo yum install mysql -y
+              sudo yum install php-mysqlnd php-fpm php-json php-xml php-gd php-mbstring -y
+              sudo systemctl enable httpd
+              sudo systemctl start httpd
+              wget https://wordpress.org/latest.tar.gz
+              tar -xvzf latest.tar.gz
+              sudo mv wordpress/* /var/www/html/
+              sudo chown -R apache:apache /var/www/html/
+              sudo systemctl restart httpd
+              sudo cp /var/www/html/wp-config-sample.php /var/www/html/wp-config.php
+              sudo sed -i "s/database_name_here/${RdsDbName}/" /var/www/html/wp-config.php
+              sudo sed -i "s/username_here/${RdsMasterUsername}/" /var/www/html/wp-config.php
+              sudo sed -i "s/password_here/${RdsMasterPassword}/" /var/www/html/wp-config.php
+              sudo sed -i "s/localhost/${RdsEndpointAddress}/" /var/www/html/wp-config.php
+              sudo systemctl restart httpd
+            - { RdsDbName: !Ref RdsDbName, RdsMasterUsername: !Ref RdsMasterUsername, RdsMasterPassword: !Ref RdsMasterPassword, RdsEndpointAddress: !Ref RdsEndpointAddress }
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    # DependsOn: LaunchTemplate
+    Properties:
+      AutoScalingGroupName: !Sub "${Environment}-${AutoscalingGroupName}-${AWS::Region}"
+      AvailabilityZones: !Split [ ",", !Ref AvailabilityZones ]
+      Cooldown: !Ref AsgCooldown
+      DesiredCapacity: !Ref AsgDesiredCapacity
+      DesiredCapacityType: !Ref AsgDesiredCapacityType
+      MaxSize: !Ref AsgMaxSize
+      MinSize: !Ref AsgMinSize
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !Ref LaunchTemplateVersion
+      VPCZoneIdentifier:
+      - !Select [ 0, !Split [ ",", !Ref PrivateSubnetIds ] ]
+      - !Select [ 1, !Split [ ",", !Ref PrivateSubnetIds ] ]
+      - !Select [ 2, !Split [ ",", !Ref PrivateSubnetIds ] ]
+      - !Select [ 3, !Split [ ",", !Ref PrivateSubnetIds ] ]
+      HealthCheckType: 'EC2'
+      HealthCheckGracePeriod: 300
+      TargetGroupARNs:
+      - !Ref TargetGroup
+      Tags:
+      - Key: 'Name'
+        Value: !Sub "${Environment}-${AutoscalingGroupName}-${AWS::Region}"
+        PropagateAtLaunch: true
+
+  # Add CloudWatch Alarms and Scaling Policies
+  ScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 80.0
+
+  ScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 40.0
+
+  HighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Alarm to scale up when CPU usage exceeds 80% for 5 minutes"
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+      - !Ref ScaleUpPolicy
+
+  LowCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Alarm to scale down when CPU usage is below 40% for 10 minutes"
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+      - Name: AutoScalingGroupName
+        Value: !Ref AutoScalingGroup
+      Statistic: Average
+      Period: 600
+      EvaluationPeriods: 1
+      Threshold: 40
+      ComparisonOperator: LessThanThreshold
+      AlarmActions:
+      - !Ref ScaleDownPolicy
+
+# ******************* Outputs *********************
+Outputs:
+  LoadBalancerDnsName:
+    Description: DNS Name of Load Balancer
+    Value: !GetAtt LoadBalancer.DNSName

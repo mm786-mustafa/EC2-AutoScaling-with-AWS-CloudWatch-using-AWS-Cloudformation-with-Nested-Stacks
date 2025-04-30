@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+
+Description: Contains RDS and Security for deploying wordpress
+
+# ******************* Parameters *********************
+Parameters:
+  Environment:
+    Description: Different environments types
+    Type: String
+
+  SecurityGroupName:
+    Description: name of security group
+    Type: String
+
+  RdsDbInstanceName:
+    Description: Name of RDS database instance
+    Type: String
+
+  RdsEngineName:
+    Description: Name of engine to use
+    Type: String
+
+  RdsEngineVersion:
+    Description: Version of engine to use
+    Type: Number
+
+  RdsDbInstanceClass:
+    Description: Class of database to use
+    Type: String
+
+  RdsStorageType:
+    Description: Type of storage to use for the RDS database
+    Type: String
+
+  RdsAllocatedStorage:
+    Description: Storage required to allocate to database
+    Type: Number
+
+  RdsMasterUsername:
+    Description: Username for RDS databse
+    Type: String
+
+  RdsMasterPassword:
+    Description: Password required for RDS database
+    Type: String
+
+  RdsDatabaseName:
+    Description: Name of database to use in RDS
+    Type: String
+
+  # ************ Other Parameters ************
+
+  VpcId:
+    Description: VPC Id
+    Type: String
+
+  VpcCidr:
+    Description: VPC Cidr
+    Type: String
+
+  PrivateSubnetIds:
+    Description: List of private subnet ids
+    Type: String
+
+# ******************* Resources *********************
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and MySQL port
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 3306
+        ToPort: 3306
+        CidrIp: !Ref VpcCidr
+      SecurityGroupEgress:
+      - IpProtocol: -1
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub "${Environment}-${SecurityGroupName}-${AWS::Region}"
+      - Key: Stack-Name
+        Value: AWS::StackName
+
+  RdsDatabase:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: !Ref RdsEngineName
+      EngineVersion: !Ref RdsEngineVersion
+      DBInstanceIdentifier: !Sub "${Environment}-${RdsDbInstanceName}-${AWS::Region}"
+      DBInstanceClass: !Ref RdsDbInstanceClass
+      StorageType: !Ref RdsStorageType
+      AllocatedStorage: !Ref RdsAllocatedStorage
+      MasterUsername: !Ref RdsMasterUsername
+      MasterUserPassword: !Ref RdsMasterPassword
+      DBName: !Ref RdsDatabaseName
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+      - !Ref SecurityGroup
+      Tags:
+      - Key: Name
+        Value: !Sub "${Environment}-${RdsDbInstanceName}-${AWS::Region}"
+      - Key: Stack-Name
+        Value: AWS::StackName
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+      - !Select [ 0, !Split [ ",", !Ref PrivateSubnetIds ] ]
+      - !Select [ 1, !Split [ ",", !Ref PrivateSubnetIds ] ]
+      - !Select [ 2, !Split [ ",", !Ref PrivateSubnetIds ] ]
+      - !Select [ 3, !Split [ ",", !Ref PrivateSubnetIds ] ]
+
+# ******************* Outputs *********************
+Outputs:
+  SecurityGroupId:
+    Description: Id of security group
+    Value: !Ref SecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-SecurityGroupId"
+
+  RdsEndpointAddress:
+    Description: Endpoint Address of Rds Database
+    Value: !GetAtt RdsDatabase.Endpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}-RdsEndpointAddress"
+
+  RdsDbName:
+    Description: Name of database used in RDS
+    Value: !GetAtt RdsDatabase.DBName
+    Export:
+      Name: !Sub "${AWS::StackName}-RdsDbName"
+
+  RdsMasterUsername:
+    Description: Database Username
+    Value: !GetAtt RdsDatabase.MasterUsername
+    Export:
+      Name: !Sub "${AWS::StackName}-RdsMasterUsername"
+
+  RdsMasterPassword:
+    Description: Database Password
+    Value: !Ref RdsMasterPassword
+    Export:
+      Name: !Sub "${AWS::StackName}-RdsMasterPassword"

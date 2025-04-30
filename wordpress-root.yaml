@@ -1,0 +1,268 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: 'AWS::LanguageExtensions'
+
+Description: Contains VPC structure for deploying wordpress
+
+# ******************* Parameters *********************
+Parameters:
+  Environment:
+    Description: Different environments types
+    Type: String
+    Default: dev
+    AllowedValues:
+    - dev
+    - testing
+    - prod
+
+  BucketName:
+    Description: Name of S3 bucket
+    Type: String
+    Default: mustafa-wordpress-bucket
+
+  VpcName:
+    Description: Name of Vpc
+    Type: String
+    Default: mustafa-vpc
+
+  VpcCidr:
+    Description: Cidr block of Vpc
+    Type: String
+    Default: 10.0.0.0/16
+
+  IgwName:
+    Description: Name of internet gateway
+    Type: String
+    Default: mustafa-igw
+
+  EipName:
+    Description: Name of elastic IP address
+    Type: String
+    Default: mustafa-eip
+
+  NgwName:
+    Description: Name of NAT gateway
+    Type: String
+    Default: mustafa-ngw
+
+  PublicRouteTableName:
+    Description: Name of public route table
+    Type: String
+    Default: mustafa-public-RT
+
+  PrivateRouteTableName:
+    Description: Name of private route table
+    Type: String
+    Default: mustafa-private-RT
+
+  AvailabilityZones:
+    Description: List of Availability zones in the region
+    Type: List<AWS::EC2::AvailabilityZone::Name>
+
+  PublicSubnetName:
+    Description: Name of public subnet
+    Type: String
+    Default: mustafa-public-subnet
+
+  PublicRouteDestinationCidr:
+    Description: Cidr block of destination
+    Type: String
+    Default: 0.0.0.0/0
+
+  PrivateSubnetName:
+    Description: Name of private subnet
+    Type: String
+    Default: mustafa-private-subnet
+
+  PrivateRouteDestinationCidr:
+    Description: Cidr block of destination
+    Type: String
+    Default: 0.0.0.0/0
+
+  SecurityGroupName:
+    Description: name of security group
+    Type: String
+    Default: mustafa-sg
+
+  RdsDbInstanceName:
+    Description: Name of RDS database instance
+    Type: String
+    Default: mustafa-db
+
+  RdsEngineName:
+    Description: Name of engine to use
+    Type: String
+    Default: MySQL
+
+  RdsEngineVersion:
+    Description: Version of engine to use
+    Type: Number
+    Default: 8.0
+
+  RdsDbInstanceClass:
+    Description: Class of database to use
+    Type: String
+    Default: db.t3.micro
+
+  RdsStorageType:
+    Description: Type of storage to use for the RDS database
+    Type: String
+    Default: gp2
+
+  RdsAllocatedStorage:
+    Description: Storage required to allocate to database
+    Type: Number
+    Default: 20
+
+  RdsMasterUsername:
+    Description: Username for RDS databse
+    Type: String
+    Default: m_mustafa
+
+  RdsMasterPassword:
+    Description: Password required for RDS database
+    Type: String
+    Default: no1knows768
+
+  RdsDatabaseName:
+    Description: Name of database to use in RDS
+    Type: String
+    Default: wordpress
+
+  TargetGroupName:
+    Description: Name of target group
+    Type: String
+    Default: mustafa-tg
+
+  LoadBalancerName:
+    Description: Name of load balancer
+    Type: String
+    Default: mustafa-lb
+
+  LaunchTemplateName:
+    Description: Name of launch template
+    Type: String
+    Default: mustafa-lt
+
+  LaunchTemplateVersion:
+    Description: Version of the launch template
+    Type: String
+    Default: "1"
+
+  KeyName:
+    Description: Name of key for ssh
+    Type: String
+    Default: mustafa-oregon-key
+
+  AutoscalingGroupName:
+    Description: Name of autoscaling group
+    Type: String
+    Default: mustafa-asg
+
+  AsgCooldown:
+    Description: Time(seconds) required to perform next activity
+    Type: String
+    Default: '300'
+
+  AsgDesiredCapacityType:
+    Description: Capacity type to measure instances
+    Type: String
+    Default: 'units'
+
+  AsgDesiredCapacity:
+    Description: Numbers of desired instances running at initialization
+    Type: String
+    Default: '2'
+
+  AsgMinSize:
+    Description: Min numbers of instances running
+    Type: String
+    Default: '1'
+
+  AsgMaxSize:
+    Description: Max numbers of instances running
+    Type: String
+    Default: '4'
+
+# ******************* Resources *********************
+Resources:
+  VpcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - https://s3.amazonaws.com/${BucketName}/vpc-network.yaml
+        - BucketName: !Ref BucketName
+      Parameters:
+        Environment: !Ref Environment
+        VpcName: !Ref VpcName
+        VpcCidr: !Ref VpcCidr
+        IgwName: !Ref IgwName
+        EipName: !Ref EipName
+        NgwName: !Ref NgwName
+        PublicRouteTableName: !Ref PublicRouteTableName
+        PrivateRouteTableName: !Ref PrivateRouteTableName
+        AvailabilityZones: !Join [ ",", !Ref AvailabilityZones ]
+        PublicSubnetName: !Ref PublicSubnetName
+        PublicRouteDestinationCidr: !Ref PublicRouteDestinationCidr
+        PrivateSubnetName: !Ref PrivateSubnetName
+        PrivateRouteDestinationCidr: !Ref PrivateRouteDestinationCidr
+
+  RdsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - https://s3.amazonaws.com/${BucketName}/rds-database.yaml
+        - BucketName: !Ref BucketName
+      Parameters:
+        Environment: !Ref Environment
+        SecurityGroupName: !Ref SecurityGroupName
+        RdsDbInstanceName: !Ref RdsDbInstanceName
+        RdsEngineName: !Ref RdsEngineName
+        RdsEngineVersion: !Ref RdsEngineVersion
+        RdsDbInstanceClass: !Ref RdsDbInstanceClass
+        RdsStorageType: !Ref RdsStorageType
+        RdsAllocatedStorage: !Ref RdsAllocatedStorage
+        RdsMasterUsername: !Ref RdsMasterUsername
+        RdsMasterPassword: !Ref RdsMasterPassword
+        RdsDatabaseName: !Ref RdsDatabaseName
+        # Other Parameters
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        VpcCidr: !GetAtt VpcStack.Outputs.VpcCidr
+        PrivateSubnetIds: !GetAtt VpcStack.Outputs.PrivateSubnetIds
+
+  AutoscalingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub
+        - https://s3.amazonaws.com/${BucketName}/autoscaling.yaml
+        - BucketName: !Ref BucketName
+      Parameters:
+        Environment: !Ref Environment
+        TargetGroupName: !Ref TargetGroupName
+        LoadBalancerName: !Ref LoadBalancerName
+        LaunchTemplateName: !Ref LaunchTemplateName
+        LaunchTemplateVersion: !Ref LaunchTemplateVersion
+        KeyName: !Ref KeyName
+        AutoscalingGroupName: !Ref AutoscalingGroupName
+        AvailabilityZones: !Join [ ",", !Ref AvailabilityZones ]
+        AsgCooldown: !Ref AsgCooldown
+        AsgDesiredCapacityType: !Ref AsgDesiredCapacityType
+        AsgDesiredCapacity: !Ref AsgDesiredCapacity
+        AsgMinSize: !Ref AsgMinSize
+        AsgMaxSize: !Ref AsgMaxSize
+        # Other Parameters
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        PublicSubnetIds: !GetAtt VpcStack.Outputs.PublicSubnetIds
+        PrivateSubnetIds: !GetAtt VpcStack.Outputs.PrivateSubnetIds
+        SecurityGroupId: !GetAtt RdsStack.Outputs.SecurityGroupId
+        RdsEndpointAddress: !GetAtt RdsStack.Outputs.RdsEndpointAddress
+        RdsDbName: !GetAtt RdsStack.Outputs.RdsDbName
+        RdsMasterUsername: !Ref RdsMasterUsername
+        RdsMasterPassword: !Ref RdsMasterPassword
+
+# ******************* Outputs ***********************
+Outputs:
+  LoadBalancerDnsName:
+    Description: DNS name of load balancer
+    Value: !GetAtt AutoscalingStack.Outputs.LoadBalancerDnsName
+    Export:
+      Name: !Sub "${AWS::StackName}-LoadBalancerDnsName"
