@@ -1,0 +1,2 @@
+# EC2-AutoScaling-with-AWS-CloudWatch-using-AWS-Cloudformation-with-Nested-Stacks
+In this project, I am going to scale up and scale down EC2 instances using AWS CloudWatch in cloudformation template. Nested stack is implemented which involves parent and child stacks. All the child stacks are defined separately but are created using parent stack. If parent stack is deleted, all the stacks are deleted.
